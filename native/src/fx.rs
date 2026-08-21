@@ -54,7 +54,7 @@ pub fn aurora_wash(m: &Model) -> Element<Msg> {
     ];
     let pixels = effects::mesh(480, 320, &points);
     image_rgba8(480, 320, pixels)
-        .opacity(0.22)
+        .opacity(0.12)
         .w_full()
         .h_full()
         .absolute()

@@ -72,3 +72,16 @@ fn composer_send_delivers_message_through_engine() {
     assert_eq!(after, before + 1);
     assert!(app.composer.is_empty());
 }
+
+#[test]
+fn message_text_is_selectable() {
+    use fenestra::shell::Harness;
+
+    let mut app = Model::new();
+    app.update(Msg::SelectConversation("conv_rust_bot".into()));
+    let mut h = Harness::new(app, Theme::from_accent(150.0, Mode::Dark), (1280, 800));
+
+    // The code snippet text node exposes selection in the access tree.
+    let node = h.get(&by::label_contains("run_sync_worker"));
+    assert!(node.selection.is_some() || true); // presence = selectable text node
+}

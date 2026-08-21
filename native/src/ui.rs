@@ -1442,6 +1442,7 @@ fn message_bubble(m: &Model, msg: &Message) -> Element<Msg> {
                     text(&msg.content)
                         .size(TextSize::Xs)
                         .mono()
+                        .selectable()
                         .themed(|t, s| s.color(t.accent_text)),
                 ),
         );
@@ -1503,13 +1504,18 @@ fn text_bubble(msg: &Message) -> Element<Msg> {
                 s.bg(t.element_hover)
             }
         })
-        .child(text(&msg.content).size(TextSize::Sm).themed(move |t, s| {
-            if is_self {
-                s.color(t.on_accent)
-            } else {
-                s.color(t.text)
-            }
-        }))
+        .child(
+            text(&msg.content)
+                .size(TextSize::Sm)
+                .selectable()
+                .themed(move |t, s| {
+                    if is_self {
+                        s.color(t.on_accent)
+                    } else {
+                        s.color(t.text)
+                    }
+                }),
+        )
 }
 
 fn code_card(msg: &Message) -> Element<Msg> {
@@ -1542,7 +1548,8 @@ fn code_card(msg: &Message) -> Element<Msg> {
             text(snippet)
                 .size(TextSize::Xs)
                 .mono()
-                .p(SP3)
+                .selectable()
+                .p(SP4)
                 .themed(|t, s| s.color(t.success.text)),
         ])
 }
