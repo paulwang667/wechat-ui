@@ -86,6 +86,11 @@ pub enum Msg {
     SaveProfile,
     ToggleEmojiPicker,
     EmojiPicked(String),
+    ToggleRecording,
+    RecordingTick,
+    SendSampleImage,
+    SendSampleFile,
+    ToggleInChatSearch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +136,8 @@ pub struct Model {
     /// Highest seq present at seed time; bubbles beyond this get enter/exit
     /// choreography (motion conveys state change, not page load).
     pub initial_max_seq: i64,
+    /// Voice-memo recording start (virtual ms); None when idle.
+    pub recording_started: Option<i64>,
 }
 
 /// Benchmark card values (PerformanceBenchmarkView.tsx state).
@@ -180,6 +187,7 @@ impl Model {
                 wal_checkpoint_ms: 0.85,
             },
             initial_max_seq: max_seq,
+            recording_started: None,
             context_menu_conv: None,
             profile_modal_open: false,
             profile_name: String::new(),
@@ -429,6 +437,134 @@ impl App for Model {
                 self.profile_modal_open = false;
             }
             Msg::ToggleEmojiPicker => self.emoji_picker_open = !self.emoji_picker_open,
+            Msg::ToggleRecording => {
+                if let Some(started) = self.recording_started.take() {
+                    // Stop → send voice memo with elapsed duration
+                    let secs = (((self.sync.now() - started) / 1000).max(1)) as u32;
+                    let Some(conv_id) = self.active_conv_id.clone() else {
+                        return;
+                    };
+                    let user = &self.current_user;
+                    let mut outgoing = Message {
+                        id: String::new(),
+                        conversation_id: conv_id,
+                        sender_id: user.id.clone(),
+                        sender_name: user.name.clone(),
+                        sender_avatar: user.avatar.clone(),
+                        is_self: true,
+                        message_type: MessageType::Voice,
+                        content: format!("[Voice Memo: {secs}s]"),
+                        timestamp: self.sync.now(),
+                        seq_id: 0,
+                        status: SyncStatus::Sending,
+                        media_url: None,
+                        file_name: None,
+                        file_size: None,
+                        voice_duration: Some(secs),
+                        code_language: None,
+                        code_snippet: None,
+                        quoted_message: None,
+                        raw_bytes: None,
+                        compressed_bytes: None,
+                        is_compressed: false,
+                    };
+                    outgoing.voice_duration = Some(secs);
+                    let events = self.sync.send_message(outgoing, self.sync.now(), 1.0);
+                    self.apply_events(events);
+                } else {
+                    self.recording_started = Some(self.sync.now());
+                }
+            }
+            Msg::RecordingTick => {
+                // Auto-send at 15s (mirrors TS behavior)
+                if let Some(started) = self.recording_started {
+                    if self.sync.now() - started >= 15_000 {
+                        self.update(Msg::ToggleRecording);
+                    }
+                }
+            }
+            Msg::SendSampleImage => {
+                let Some(conv_id) = self.active_conv_id.clone() else {
+                    return;
+                };
+                let n = self.sync.current_seq();
+                let samples = [
+                    "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=600&auto=format&fit=crop&q=80",
+                    "https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&auto=format&fit=crop&q=80",
+                    "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=600&auto=format&fit=crop&q=80",
+                ];
+                let user = &self.current_user;
+                let mut outgoing = Message {
+                    id: String::new(),
+                    conversation_id: conv_id,
+                    sender_id: user.id.clone(),
+                    sender_name: user.name.clone(),
+                    sender_avatar: user.avatar.clone(),
+                    is_self: true,
+                    message_type: MessageType::Image,
+                    content: "[Image]".into(),
+                    timestamp: self.sync.now(),
+                    seq_id: 0,
+                    status: SyncStatus::Sending,
+                    media_url: Some(samples[(n as usize) % samples.len()].into()),
+                    file_name: None,
+                    file_size: None,
+                    voice_duration: None,
+                    code_language: None,
+                    code_snippet: None,
+                    quoted_message: None,
+                    raw_bytes: None,
+                    compressed_bytes: None,
+                    is_compressed: false,
+                };
+                outgoing.media_url = Some(samples[(n as usize) % samples.len()].into());
+                let events = self.sync.send_message(outgoing, self.sync.now(), 1.0);
+                self.apply_events(events);
+            }
+            Msg::ToggleInChatSearch => {
+                // In-chat search drawer: P4 leftover; toggles composer hint for now.
+                self.emoji_picker_open = false;
+            }
+            Msg::SendSampleFile => {
+                let Some(conv_id) = self.active_conv_id.clone() else {
+                    return;
+                };
+                let samples = [
+                    ("rust_fenestra_wechat_arch.pdf", "2.8 MB"),
+                    ("tokio_sync_benchmarks.json", "340 KB"),
+                    ("sqlite_wal_compaction_v2.rs", "18 KB"),
+                ];
+                let n = self.sync.current_seq() as usize % samples.len();
+                let (name, size) = samples[n];
+                let user = &self.current_user;
+                let mut outgoing = Message {
+                    id: String::new(),
+                    conversation_id: conv_id,
+                    sender_id: user.id.clone(),
+                    sender_name: user.name.clone(),
+                    sender_avatar: user.avatar.clone(),
+                    is_self: true,
+                    message_type: MessageType::File,
+                    content: name.into(),
+                    timestamp: self.sync.now(),
+                    seq_id: 0,
+                    status: SyncStatus::Sending,
+                    media_url: None,
+                    file_name: Some(name.into()),
+                    file_size: Some(size.into()),
+                    voice_duration: None,
+                    code_language: None,
+                    code_snippet: None,
+                    quoted_message: None,
+                    raw_bytes: None,
+                    compressed_bytes: None,
+                    is_compressed: false,
+                };
+                outgoing.file_name = Some(name.into());
+                outgoing.file_size = Some(size.into());
+                let events = self.sync.send_message(outgoing, self.sync.now(), 1.0);
+                self.apply_events(events);
+            }
             Msg::EmojiPicked(e) => {
                 self.composer.push_str(&e);
                 self.emoji_picker_open = false;
@@ -482,11 +618,19 @@ impl App for Model {
     }
 
     fn subscriptions(&self) -> Vec<Sub<Msg>> {
-        vec![Sub::every(
+        let mut subs = vec![Sub::every(
             "heartbeat",
             std::time::Duration::from_secs(3),
             || Msg::Heartbeat,
-        )]
+        )];
+        if self.recording_started.is_some() {
+            subs.push(Sub::every(
+                "recording",
+                std::time::Duration::from_secs(1),
+                || Msg::RecordingTick,
+            ));
+        }
+        subs
     }
 
     fn theme(&self) -> Theme {
@@ -759,6 +903,20 @@ fn nav_item(m: &Model, tab: Tab, badge: Option<u32>) -> Element<Msg> {
         base.state_layer(|t| t.text)
             .child(icon_named(tab.icon(), 20.0))
     };
+
+    if active {
+        // TS: absolute -left-2 top-2.5 bottom-2.5 w-1 rounded-r-full accent bar
+        el = el.child(
+            div()
+                .absolute()
+                .left(-8.0)
+                .top(10.0)
+                .bottom(10.0)
+                .w(4.0)
+                .rounded_full()
+                .themed(|t, s| s.bg(t.success.solid)),
+        );
+    }
 
     if let Some(count) = badge {
         el = el.child(badge_counter(count));
@@ -1158,42 +1316,75 @@ fn chat_area(m: &Model) -> Element<Msg> {
                 .grow()
                 .overflow_hidden()
                 .children([
-                    // Header: translucent over the wash, live pulse on sync
+                    // Header: translucent over the wash, live pulse, right tools
                     row()
+                        .w_full()
                         .h(56.0)
                         .px(SP4)
                         .items_center()
-                        .gap(SP3)
+                        .justify_between()
                         .shrink0()
                         .themed(|t, s| {
                             s.bg(t.surface.with_alpha(0.82))
                                 .border_bottom(1.0, t.border_subtle)
                         })
                         .children([
-                            chat_avatar(
-                                msgs.first()
-                                    .map(|msg| msg.sender_name.as_str())
-                                    .or(conv.map(|c| c.name.as_str()))
-                                    .unwrap_or("Chat"),
-                                0,
-                            ),
-                            col().gap(2.0).children([
-                                text(
-                                    conv.map(|c| c.name.clone())
-                                        .unwrap_or_else(|| "Chat".into()),
-                                )
-                                .size(TextSize::Sm)
-                                .weight(Weight::Semibold),
-                                text(format!(
-                                    "Rust Sync Sequence: #{}",
-                                    conv.map(|c| c.last_sync_seq).unwrap_or(0)
-                                ))
-                                .size(TextSize::Xs)
-                                .mono()
-                                .themed(|t, s| s.color(t.text_subtle)),
-                            ]),
-                            spacer_w(8.0),
-                            status("Live", Status::Success).live(true).into(),
+                            // Left: avatar + name + live pulse
+                            row()
+                                .gap(SP3)
+                                .items_center()
+                                .children([
+                                    chat_avatar(
+                                        msgs.first()
+                                            .map(|msg| msg.sender_name.as_str())
+                                            .or(conv.map(|c| c.name.as_str()))
+                                            .unwrap_or("Chat"),
+                                        0,
+                                    ),
+                                    col().gap(2.0).children([
+                                        text(
+                                            conv.map(|c| c.name.clone())
+                                                .unwrap_or_else(|| "Chat".into()),
+                                        )
+                                        .size(TextSize::Sm)
+                                        .weight(Weight::Semibold),
+                                        text(format!(
+                                            "Rust Sync Sequence: #{}",
+                                            conv.map(|c| c.last_sync_seq).unwrap_or(0)
+                                        ))
+                                        .size(TextSize::Xs)
+                                        .mono()
+                                        .themed(|t, s| s.color(t.text_subtle)),
+                                    ]),
+                                    spacer_w(8.0),
+                                    status("Live", Status::Success).live(true).into(),
+                                ]),
+                            // Right: search / call / video / more
+                            row()
+                                .gap(SP1)
+                                .shrink0()
+                                .children([
+                                    icon_button(
+                                        icon_named("search", 16.0),
+                                        Msg::ToggleInChatSearch,
+                                        "Search in this chat",
+                                    ),
+                                    icon_button(
+                                        icon_named("phone", 16.0),
+                                        Msg::ComposerSend,
+                                        "Audio call",
+                                    ),
+                                    icon_button(
+                                        icon_named("video", 16.0),
+                                        Msg::ComposerSend,
+                                        "Video call",
+                                    ),
+                                    icon_button(
+                                        icon_named("ellipsis", 16.0),
+                                        Msg::ToggleInChatSearch,
+                                        "Conversation details",
+                                    ),
+                                ]),
                         ]),
                     // Messages feed — stick_to_bottom keeps new sends pinned
                     col()
@@ -1401,70 +1592,131 @@ fn meta_items(msg: &Message) -> Vec<Element<Msg>> {
 // ---------- Composer ----------
 
 fn composer(m: &Model) -> Element<Msg> {
-    // The screen's one glass surface: vibrancy tint over the aurora wash,
-    // specular rim from the Glass material. Legibility protected by fill alpha.
+    // TS-faithful structure: toolbar (emoji/image/file/code/voice + hint)
+    // above a textarea + Send row. Glass kept as the pane's focal material.
+    let recording = m
+        .recording_started
+        .map(|t0| ((m.sync.now() - t0) / 1000).max(1));
+
+    // Toolbar left group
+    let emoji_anchor = {
+        let mut anchor = div();
+        anchor = anchor.child(icon_button(
+            icon_named("smile", 16.0),
+            Msg::ToggleEmojiPicker,
+            "Emoji picker",
+        ));
+        if m.emoji_picker_open {
+            anchor = anchor.child(emoji_popover());
+        }
+        anchor
+    };
+
+    let mic_btn = {
+        let recording_now = recording.is_some();
+        let base = div()
+            .w(24.0)
+            .h(24.0)
+            .items_center()
+            .justify_center()
+            .rounded(R_SM)
+            .focusable(true)
+            .semantics(Semantics::Button)
+            .label(if recording_now { "Stop recording" } else { "Record voice note" })
+            .on_click(Msg::ToggleRecording);
+        if recording_now {
+            base.themed(|t, s| s.bg(t.danger.solid))
+                .child(icon_named("mic", 16.0).themed(|t, s| s.color(t.on_accent)))
+        } else {
+            base.state_layer(|t| t.text).child(icon_named("mic", 16.0))
+        }
+    };
+
+    let toolbar_left = row()
+        .gap(SP2)
+        .shrink0()
+        .children([
+            emoji_anchor,
+            icon_button(icon_named("image", 16.0), Msg::SendSampleImage, "Send image"),
+            icon_button(icon_named("paperclip", 16.0), Msg::SendSampleFile, "Send file"),
+            icon_button(icons::lucide::copy(), Msg::ComposerSend, "Code snippet"),
+            mic_btn,
+        ])
+        .child(match recording {
+            Some(secs) => text(format!("Recording {secs}s..."))
+                .size(TextSize::Xs)
+                .mono()
+                .weight(Weight::Semibold)
+                .themed(|t, s| s.color(t.danger.text)),
+            None => div().w(0.0).h(0.0),
+        });
+
+    // Input row
+    let ta: Element<Msg> = text_area(m.composer.clone())
+        .placeholder("Type a message or paste code...")
+        .width(480.0)
+        .min_height(40.0)
+        .id("composer")
+        .on_input(Msg::ComposerInput)
+        .into();
+
     col()
         .shrink0()
         .surface(Surface::Glass)
         .children([
-            // Toolbar hint row
+            // Toolbar
             row()
+                .w_full()
                 .px(SP3)
                 .py(SP1)
                 .justify_between()
                 .items_center()
                 .children([
-                    row()
-                        .gap(SP2)
-                        .children([
-                            {
-                                // Emoji anchor: popover toggles below the smiley.
-                                let mut anchor = div();
-                                anchor = anchor.child(
-                                    icon_button(icons::lucide::star(), Msg::ToggleEmojiPicker, "Emoji picker"),
-                                );
-                                if m.emoji_picker_open {
-                                    anchor = anchor.child(emoji_popover());
-                                }
-                                anchor
-                            },
-                            icon_button(icons::lucide::file(), Msg::ComposerSend, "Attach file (P4)"),
-                            icon_button(icons::lucide::copy(), Msg::ComposerSend, "Code snippet (P4)"),
-                        ])
-                        .shrink0(),
+                    toolbar_left,
                     text("Enter to send, Shift+Enter for new line")
                         .size(TextSize::Xs)
                         .mono()
                         .themed(|t, s| s.color(t.text_subtle)),
                 ]),
             // Input row
-            {
-                let ta: Element<Msg> = text_area(m.composer.clone())
-                    .placeholder("Type a message or paste code...")
-                    .width(480.0)
-                    .min_height(40.0)
-                    .id("composer")
-                    .on_input(Msg::ComposerInput)
-                    .into();
-                row()
-                    .px(SP3)
-                    .pb(SP2)
-                    .gap(SP2)
-                    .items_end()
-                    .children([ta.grow(), send_button(!m.composer.trim().is_empty())])
-            }
+            row()
+                .w_full()
+                .px(SP3)
+                .pb(SP2)
+                .gap(SP2)
+                .items_end()
+                .children([ta.grow(), send_button(!m.composer.trim().is_empty())]),
         ])
 }
 
 fn send_button(enabled: bool) -> Element<Msg> {
+    let base = div()
+        .px(SP4)
+        .py(6.0)
+        .rounded(R_MD)
+        .items_center()
+        .gap(SP1)
+        .semantics(Semantics::Button)
+        .label("Send message")
+        .on_click(Msg::ComposerSend);
     if enabled {
-        button("Send").size(ControlSize::Sm).on_click(Msg::ComposerSend).into()
+        base.themed(|t, s| s.bg(t.accent))
+            .press_scale()
+            .child(
+                text("Send")
+                    .size(TextSize::Xs)
+                    .weight(Weight::Medium)
+                    .themed(|t, s| s.color(t.on_accent)),
+            )
+            .child(icon_named("send", 12.0).themed(|t, s| s.color(t.on_accent)))
     } else {
-        button("Send")
-            .size(ControlSize::Sm)
-            .disabled(true)
-            .on_click(Msg::ComposerSend)
-            .into()
+        base.themed(|t, s| s.bg(t.element))
+            .child(
+                text("Send")
+                    .size(TextSize::Xs)
+                    .themed(|t, s| s.color(t.text_disabled)),
+            )
+            .child(icon_named("send", 12.0).themed(|t, s| s.color(t.text_disabled)))
     }
 }
 
