@@ -1,0 +1,6 @@
+{
+  "name": "Rust Fenestra WeChat Client",
+  "description": "A high-performance minimalist desktop WeChat client architecture with Rust and Fenestra, featuring incremental message sync, lightweight storage optimization, virtualized scrolling, and sync engine diagnostics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
