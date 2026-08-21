@@ -1587,8 +1587,8 @@ fn meta_items(msg: &Message) -> Vec<Element<Msg>> {
 // ---------- Composer ----------
 
 fn composer(m: &Model) -> Element<Msg> {
-    // TS-faithful structure: toolbar (emoji/image/file/code/voice + hint)
-    // above a textarea + Send row. Glass kept as the pane's focal material.
+    // TS-faithful: solid raised surface with a top hairline — the chat feed
+    // stays the visual protagonist; no floating glass in the work area.
     let recording = m
         .recording_started
         .map(|t0| ((m.sync.now() - t0) / 1000).max(1));
@@ -1658,7 +1658,7 @@ fn composer(m: &Model) -> Element<Msg> {
     col()
         .w_full()
         .shrink0()
-        .surface(Surface::Glass)
+        .themed(|t, s| s.bg(t.surface).border_top(1.0, t.border_subtle))
         .children([
             // Toolbar
             row()
