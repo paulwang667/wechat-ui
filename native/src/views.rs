@@ -93,12 +93,16 @@ fn metric_card(
                 ),
         );
     }
-
-    card_base()
+    // No card shell: hierarchy comes from type scale and whitespace alone
+    // (PRODUCT.md anti-reference: identical bordered metric boxes).
+    col()
         .gap(SP1)
+        .min_w(150.0)
+        .grow()
         .children([
             text(label.to_string())
-                .size(TextSize::Sm)
+                .size(TextSize::Xs)
+                .mono()
                 .themed(|t, s| s.color(t.text_muted)),
             value_row,
             text(footnote)
@@ -107,8 +111,18 @@ fn metric_card(
         ])
 }
 
-fn card_base() -> Element<Msg> {
+/// Editorial hairline between borderless metrics: structure without boxes.
+fn metric_divider() -> Element<Msg> {
     div()
+        .w(1.0)
+        .min_h(56.0)
+        .shrink0()
+        .themed(|t, s| s.bg(t.border_subtle))
+}
+
+fn card_base() -> Element<Msg> {
+    // col(): fenestra div() is a row — panel contents stack vertically.
+    col()
         .p(SP4)
         .rounded(R_LG)
         .themed(|t, s| s.bg(t.surface).border(1.0, t.border_subtle))
@@ -143,10 +157,11 @@ pub fn storage_view(m: &Model) -> Element<Msg> {
         "Rust B-Tree + LZ4 + WAL",
         "Zero-copy message streaming, memory-mapped I/O, and blob deduplication.",
         vec![
-            // Top metric cards
+            // Top metrics: type hierarchy + hairlines, no boxes
             row()
-                .gap(SP4)
-                .children([
+                .gap(SP5)
+                .items_start()
+                .children(vec![
                     metric_card(
                         "Total Messages",
                         format!("{}", metrics.total_messages),
@@ -154,6 +169,7 @@ pub fn storage_view(m: &Model) -> Element<Msg> {
                         None,
                         format!("in {} chats • columnar index < 0.05ms", metrics.total_conversations),
                     ),
+                    metric_divider(),
                     metric_card(
                         "LZ4 Compressed Store",
                         format_kb(metrics.compressed_storage_bytes),
@@ -165,6 +181,7 @@ pub fn storage_view(m: &Model) -> Element<Msg> {
                             format_kb(metrics.saved_storage_bytes)
                         ),
                     ),
+                    metric_divider(),
                     metric_card(
                         "WAL Journal & Index",
                         format_kb(metrics.wal_log_size_bytes + metrics.index_size_bytes),
@@ -176,6 +193,7 @@ pub fn storage_view(m: &Model) -> Element<Msg> {
                             format_kb(metrics.index_size_bytes)
                         ),
                     ),
+                    metric_divider(),
                     metric_card(
                         "Hot Memory Cache",
                         format_kb(metrics.active_memory_cache_bytes),
@@ -388,9 +406,9 @@ fn backup_card(m: &Model) -> Element<Msg> {
             action_button("Export DB Backup (.json)", Msg::ExportDb, true),
             {
                 let ta: Element<Msg> = text_area(m.import_json.clone())
-                    .placeholder("Paste JSON database snapshot to restore...")
+                    .placeholder("Paste JSON snapshot to restore...")
                     .width(280.0)
-                    .min_height(40.0)
+                    .min_height(56.0)
                     .id("import-json")
                     .on_input(Msg::ImportJsonInput)
                     .into();
@@ -450,9 +468,10 @@ pub fn sync_diag_view(m: &Model) -> Element<Msg> {
         "Protobuf Delta Sync",
         "Monotonic sequence ordering, vector clock convergence, and async outbox dispatcher.",
         vec![
-            // Status cards
+            // Status metrics: type hierarchy + hairlines, no boxes
             row()
-                .gap(SP4)
+                .gap(SP5)
+                .items_start()
                 .wrap()
                 .children(vec![
                     metric_card(
@@ -462,6 +481,7 @@ pub fn sync_diag_view(m: &Model) -> Element<Msg> {
                         None,
                         "Strict total ordering invariant".into(),
                     ),
+                    metric_divider(),
                     metric_card(
                         "Outbox Pending Queue",
                         format!("{}", outbox.len()),
@@ -473,6 +493,7 @@ pub fn sync_diag_view(m: &Model) -> Element<Msg> {
                             "Waiting for network sync".into()
                         },
                     ),
+                    metric_divider(),
                     metric_card(
                         "Current RTT Latency",
                         if net.mode == NetworkMode::Offline {
@@ -484,6 +505,7 @@ pub fn sync_diag_view(m: &Model) -> Element<Msg> {
                         None,
                         format!("Loss rate: {:.0}%", net.packet_loss_rate * 100.0),
                     ),
+                    metric_divider(),
                     metric_card(
                         "Sync Channel Mode",
                         network_mode_label(net.mode).to_uppercase(),
@@ -747,7 +769,8 @@ pub fn benchmark_view(m: &Model) -> Element<Msg> {
         "Benchmarking memory safety, zero-copy serialization, and GPU-accelerated rendering.",
         vec![
             row()
-                .gap(SP4)
+                .gap(SP5)
+                .items_start()
                 .wrap()
                 .children(vec![
                     metric_card(
@@ -839,8 +862,9 @@ pub fn benchmark_view(m: &Model) -> Element<Msg> {
 }
 
 fn pacing_box(label: &str, value: String, color: ValueColor) -> Element<Msg> {
-    div()
+    col()
         .p(SP3)
+        .gap(SP1)
         .rounded(R_MD)
         .min_w(180.0)
         .themed(|t, s| s.bg(t.element))

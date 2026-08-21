@@ -22,17 +22,57 @@ pub fn aurora_background(m: &Model, width: u32, height: u32) -> Element<Msg> {
         .left(0.0)
 }
 
+/// The working-surface variant: same aurora language at whisper volume.
+/// Points hug the corners (away from message content), alpha ≤ 0.22, so the
+/// feed reads as lit air rather than decoration. Stretched from a fixed
+/// 480×320 field — mesh gradients scale cleanly.
+pub fn aurora_wash(m: &Model) -> Element<Msg> {
+    let t = m.theme();
+    // Opaque points (mesh blends OKLab regardless of point alpha); the
+    // whisper volume is applied at draw time via element opacity.
+    let points = vec![
+        effects::MeshPoint {
+            x: 0.06,
+            y: 0.08,
+            color: t.accent,
+        },
+        effects::MeshPoint {
+            x: 0.94,
+            y: 0.12,
+            color: t.success.solid,
+        },
+        effects::MeshPoint {
+            x: 0.10,
+            y: 0.94,
+            color: t.accent_bg,
+        },
+        effects::MeshPoint {
+            x: 0.92,
+            y: 0.90,
+            color: t.bg,
+        },
+    ];
+    let pixels = effects::mesh(480, 320, &points);
+    image_rgba8(480, 320, pixels)
+        .opacity(0.22)
+        .w_full()
+        .h_full()
+        .absolute()
+        .top(0.0)
+        .left(0.0)
+}
+
 fn aurora_points(t: &Theme) -> Vec<effects::MeshPoint> {
     vec![
         effects::MeshPoint {
             x: 0.15,
             y: 0.1,
-            color: t.accent.with_alpha(0.55),
+            color: t.accent,
         },
         effects::MeshPoint {
             x: 0.85,
             y: 0.25,
-            color: t.success.solid.with_alpha(0.35),
+            color: t.success.solid,
         },
         effects::MeshPoint {
             x: 0.3,
@@ -98,7 +138,6 @@ pub fn gradient_header_bar() -> Element<Msg> {
         .h(3.0)
         .w_full()
         .shrink0()
-        .bg(linear_gradient(90.0, Vec::<Color>::new())) // replaced below with themed
         .themed(|t, s| {
             s.bg(linear_gradient(
                 90.0,

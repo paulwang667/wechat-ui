@@ -7,3 +7,4 @@ pub mod ui;
 pub mod types;
 pub mod views;
 pub mod fx;
+pub mod icons;

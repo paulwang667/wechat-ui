@@ -128,6 +128,9 @@ pub struct Model {
     pub profile_name: String,
     pub profile_bio: String,
     pub emoji_picker_open: bool,
+    /// Highest seq present at seed time; bubbles beyond this get enter/exit
+    /// choreography (motion conveys state change, not page load).
+    pub initial_max_seq: i64,
 }
 
 /// Benchmark card values (PerformanceBenchmarkView.tsx state).
@@ -143,7 +146,9 @@ impl Model {
     pub fn new() -> Self {
         let now = mock::now_ms();
         let mut sync = SyncEngine::new();
+        let mut max_seq = 0i64;
         for msg in mock::initial_messages(now) {
+            max_seq = max_seq.max(msg.seq_id);
             sync.storage_mut().insert_message(msg);
         }
         Self {
@@ -174,6 +179,7 @@ impl Model {
                 base_memory_mb: 14.8,
                 wal_checkpoint_ms: 0.85,
             },
+            initial_max_seq: max_seq,
             context_menu_conv: None,
             profile_modal_open: false,
             profile_name: String::new(),
@@ -501,7 +507,11 @@ impl App for Model {
             .h_full()
             .overflow_hidden()
             .themed(|t, s| s.bg(t.bg))
-            .children([title_bar(self), main_row(self)]);
+            .children([
+                title_bar(self),
+                crate::fx::gradient_header_bar(),
+                main_row(self),
+            ]);
         if self.profile_modal_open {
             root = root.child(profile_modal(self));
         }
@@ -707,14 +717,22 @@ fn sidebar(m: &Model) -> Element<Msg> {
             // Nav icons
             col().gap(SP4).children(nav),
             spacer(),
-            // Engine status chip
+            // Engine status chip: breathes — the surface is alive
             div()
                 .w(36.0)
                 .h(36.0)
                 .rounded(R_MD)
                 .items_center()
                 .justify_center()
-                .themed(|t, s| s.bg(t.accent_bg).border(1.0, t.accent_border))
+                .keyframes(
+                    Keyframes::new(2600.0)
+                        .themed_stop(0.0, |t, s| s.bg(t.accent_bg).border(1.0, t.accent_border))
+                        .themed_stop(
+                            0.5,
+                            |t, s| s.bg(t.accent_border).border(1.0, t.accent),
+                        )
+                        .themed_stop(1.0, |t, s| s.bg(t.accent_bg).border(1.0, t.accent_border)),
+                )
                 .child(icon_named("zap", 16.0)),
         ])
 }
@@ -799,13 +817,16 @@ fn avatar_initials(name: &str, size: f32) -> Element<Msg> {
 /// Icon by kebab-case lucide name; falls back to a dot for names outside the
 /// vendored subset (missing icons are a P5 asset task, not a layout risk).
 fn icon_named(name: &str, size: f32) -> Element<Msg> {
-    match icons::lucide::by_name(name) {
-        Some(el) => el.w(size).h(size),
-        None => div().w(size).h(size).rounded_full().themed(|t, s| {
-            let _ = t;
-            s.bg(Color::from_rgb8(120, 120, 130))
-        }),
-    }
+    let el = crate::icons::by_name(name)
+        .or_else(|| icons::lucide::by_name(name))
+        .unwrap_or_else(|| {
+            // Unknown name: neutral dot placeholder (should not ship).
+            div().w(24.0).h(24.0).rounded_full().themed(|t, s| {
+                let _ = t;
+                s.bg(Color::from_rgb8(120, 120, 130))
+            })
+        });
+    el.w(size).h(size)
 }
 
 // ---------- Main panel switcher ----------
@@ -1126,74 +1147,100 @@ fn chat_area(m: &Model) -> Element<Msg> {
     let msgs = m.sync.storage().peek_messages_by_conversation(conv_id);
     let conv = m.conversations.iter().find(|c| &c.id == conv_id);
 
-    col()
+    // Aurora wash sits behind the whole pane (light has a source); the
+    // composer is the screen's single glass focal surface floating over it.
+    stack()
         .grow()
         .overflow_hidden()
-        .themed(|t, s| s.bg(t.bg))
-        .children([
-            // Header
-            row()
-                .h(56.0)
-                .px(SP4)
-                .items_center()
-                .gap(SP3)
-                .shrink0()
-                .themed(|t, s| s.bg(t.surface).border_bottom(1.0, t.border_subtle))
-                .children([
-                    chat_avatar(
-                        msgs.first()
-                            .map(|msg| msg.sender_name.as_str())
-                            .or(conv.map(|c| c.name.as_str()))
-                            .unwrap_or("Chat"),
-                        0,
-                    ),
-                    col().gap(2.0).children([
-                        text(
-                            conv.map(|c| c.name.clone())
-                                .unwrap_or_else(|| "Chat".into()),
-                        )
-                        .size(TextSize::Sm)
-                        .weight(Weight::Semibold),
-                        text(format!(
-                            "Rust Sync Sequence: #{}",
-                            conv.map(|c| c.last_sync_seq).unwrap_or(0)
-                        ))
-                        .size(TextSize::Xs)
-                        .mono()
-                        .themed(|t, s| s.color(t.text_subtle)),
-                    ]),
-                ]),
-            // Messages feed — stick_to_bottom keeps new sends pinned
+        // BISECT: wash removed
+        .child(
             col()
                 .grow()
-                .scroll_y()
-                .stick_to_bottom()
-                .id("message-feed")
-                .p(SP4)
-                .gap(SP4)
-                .children(msgs.iter().map(message_bubble).collect::<Vec<_>>()),
-            composer(m),
-        ])
+                .overflow_hidden()
+                .children([
+                    // Header: translucent over the wash, live pulse on sync
+                    row()
+                        .h(56.0)
+                        .px(SP4)
+                        .items_center()
+                        .gap(SP3)
+                        .shrink0()
+                        .themed(|t, s| {
+                            s.bg(t.surface.with_alpha(0.82))
+                                .border_bottom(1.0, t.border_subtle)
+                        })
+                        .children([
+                            chat_avatar(
+                                msgs.first()
+                                    .map(|msg| msg.sender_name.as_str())
+                                    .or(conv.map(|c| c.name.as_str()))
+                                    .unwrap_or("Chat"),
+                                0,
+                            ),
+                            col().gap(2.0).children([
+                                text(
+                                    conv.map(|c| c.name.clone())
+                                        .unwrap_or_else(|| "Chat".into()),
+                                )
+                                .size(TextSize::Sm)
+                                .weight(Weight::Semibold),
+                                text(format!(
+                                    "Rust Sync Sequence: #{}",
+                                    conv.map(|c| c.last_sync_seq).unwrap_or(0)
+                                ))
+                                .size(TextSize::Xs)
+                                .mono()
+                                .themed(|t, s| s.color(t.text_subtle)),
+                            ]),
+                            spacer_w(8.0),
+                            status("Live", Status::Success).live(true).into(),
+                        ]),
+                    // Messages feed — stick_to_bottom keeps new sends pinned
+                    col()
+                        .grow()
+                        .scroll_y()
+                        .stick_to_bottom()
+                        .id("message-feed")
+                        .p(SP4)
+                        .gap(SP4)
+                        .children(
+                            msgs.iter()
+                                .map(|msg| message_bubble(m, msg))
+                                .collect::<Vec<_>>(),
+                        ),
+                    composer(m),
+                ]),
+        )
 }
 
 fn empty_state() -> Element<Msg> {
-    col()
+    // Glow behind the mark: light with a source (radial accent halo).
+    stack()
         .grow()
         .items_center()
         .justify_center()
-        .gap(SP2)
         .themed(|t, s| s.bg(t.bg))
-        .children([
-            text("WeChat Desktop (Rust Native)")
-                .size(TextSize::Sm)
-                .weight(Weight::Semibold),
-            text("Select a conversation to inspect sync sequences & storage compaction")
-                .size(TextSize::Xs)
-                .themed(|t, s| s.color(t.text_muted)),
-        ])
+        .child(crate::fx::radial_glow().absolute())
+        .child(
+            col()
+                .items_center()
+                .gap(SP3)
+                .children([
+                    text("WeChat Desktop (Rust Native)")
+                        .size(TextSize::Lg)
+                        .weight(Weight::Semibold),
+                    text(
+                        "Select a conversation to inspect sync sequences & storage compaction",
+                    )
+                    .size(TextSize::Xs)
+                    .themed(|t, s| s.color(t.text_muted)),
+                    crate::fx::breathing_chip("ENGINE LIVE".into()),
+                ]),
+        )
 }
 
-fn message_bubble(msg: &Message) -> Element<Msg> {
+fn message_bubble(m: &Model, msg: &Message) -> Element<Msg> {
+    let is_new = msg.seq_id > m.initial_max_seq;
     let is_self = msg.is_self;
 
     // System message: centered pill
@@ -1238,7 +1285,7 @@ fn message_bubble(msg: &Message) -> Element<Msg> {
 
     let avatar = chat_avatar(&msg.sender_name, 0);
 
-    if is_self {
+    let row = if is_self {
         row()
             .justify_end()
             .gap(SP2)
@@ -1246,6 +1293,13 @@ fn message_bubble(msg: &Message) -> Element<Msg> {
             .children([content_col, avatar])
     } else {
         row().gap(SP2).items_start().children([avatar, content_col])
+    };
+    // Choreography only for messages that arrive after load: motion conveys
+    // state change, never page load (product register).
+    if is_new {
+        crate::fx::animated_bubble(row, &format!("msg-{}", msg.id))
+    } else {
+        row
     }
 }
 
@@ -1274,13 +1328,18 @@ fn text_bubble(msg: &Message) -> Element<Msg> {
 
 fn code_card(msg: &Message) -> Element<Msg> {
     let snippet = msg.code_snippet.clone().unwrap_or_else(|| msg.content.clone());
-    div()
+    // col(), not div(): div is a ROW in fenestra — multi-child vertical
+    // stacking needs an explicit column. Width lives here so the inner
+    // header row can justify_between across it.
+    col()
+        .w_full()
         .max_w(560.0)
         .rounded(R_LG)
         .overflow_hidden()
         .themed(|t, s| s.bg(t.bg).border(1.0, t.border))
         .children([
             row()
+                .w_full()
                 .px(SP3)
                 .py(SP1)
                 .justify_between()
@@ -1342,9 +1401,11 @@ fn meta_items(msg: &Message) -> Vec<Element<Msg>> {
 // ---------- Composer ----------
 
 fn composer(m: &Model) -> Element<Msg> {
+    // The screen's one glass surface: vibrancy tint over the aurora wash,
+    // specular rim from the Glass material. Legibility protected by fill alpha.
     col()
         .shrink0()
-        .themed(|t, s| s.bg(t.surface).border_top(1.0, t.border_subtle))
+        .surface(Surface::Glass)
         .children([
             // Toolbar hint row
             row()
