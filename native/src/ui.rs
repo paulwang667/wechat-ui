@@ -1305,103 +1305,98 @@ fn chat_area(m: &Model) -> Element<Msg> {
     let msgs = m.sync.storage().peek_messages_by_conversation(conv_id);
     let conv = m.conversations.iter().find(|c| &c.id == conv_id);
 
-    // Aurora wash sits behind the whole pane (light has a source); the
-    // composer is the screen's single glass focal surface floating over it.
-    stack()
+    // Aurora wash: absolute overlay painted first (behind in-flow siblings).
+    // No stack() — grid cells hug content, which collapsed the header width.
+    col()
         .grow()
         .overflow_hidden()
-        // BISECT: wash removed
-        .child(
+        .child(crate::fx::aurora_wash(m))
+        .children([
+            // Header: translucent over the wash, live pulse, right tools
+            row()
+                .w_full()
+                .h(56.0)
+                .px(SP4)
+                .items_center()
+                .justify_between()
+                .shrink0()
+                .themed(|t, s| {
+                    s.bg(t.surface.with_alpha(0.82))
+                        .border_bottom(1.0, t.border_subtle)
+                })
+                .children([
+                    // Left: avatar + name + live pulse
+                    row()
+                        .gap(SP3)
+                        .items_center()
+                        .children([
+                            chat_avatar(
+                                msgs.first()
+                                    .map(|msg| msg.sender_name.as_str())
+                                    .or(conv.map(|c| c.name.as_str()))
+                                    .unwrap_or("Chat"),
+                                0,
+                            ),
+                            col().gap(2.0).children([
+                                text(
+                                    conv.map(|c| c.name.clone())
+                                        .unwrap_or_else(|| "Chat".into()),
+                                )
+                                .size(TextSize::Sm)
+                                .weight(Weight::Semibold),
+                                text(format!(
+                                    "Rust Sync Sequence: #{}",
+                                    conv.map(|c| c.last_sync_seq).unwrap_or(0)
+                                ))
+                                .size(TextSize::Xs)
+                                .mono()
+                                .themed(|t, s| s.color(t.text_subtle)),
+                            ]),
+                            spacer_w(8.0),
+                            status("Live", Status::Success).live(true).into(),
+                        ]),
+                    // Right: search / call / video / more
+                    row()
+                        .gap(SP1)
+                        .shrink0()
+                        .children([
+                            icon_button(
+                                icon_named("search", 16.0),
+                                Msg::ToggleInChatSearch,
+                                "Search in this chat",
+                            ),
+                            icon_button(
+                                icon_named("phone", 16.0),
+                                Msg::ComposerSend,
+                                "Audio call",
+                            ),
+                            icon_button(
+                                icon_named("video", 16.0),
+                                Msg::ComposerSend,
+                                "Video call",
+                            ),
+                            icon_button(
+                                icon_named("ellipsis", 16.0),
+                                Msg::ToggleInChatSearch,
+                                "Conversation details",
+                            ),
+                        ]),
+                ]),
+            // Messages feed — stick_to_bottom keeps new sends pinned
             col()
                 .grow()
-                .overflow_hidden()
-                .children([
-                    // Header: translucent over the wash, live pulse, right tools
-                    row()
-                        .w_full()
-                        .h(56.0)
-                        .px(SP4)
-                        .items_center()
-                        .justify_between()
-                        .shrink0()
-                        .themed(|t, s| {
-                            s.bg(t.surface.with_alpha(0.82))
-                                .border_bottom(1.0, t.border_subtle)
-                        })
-                        .children([
-                            // Left: avatar + name + live pulse
-                            row()
-                                .gap(SP3)
-                                .items_center()
-                                .children([
-                                    chat_avatar(
-                                        msgs.first()
-                                            .map(|msg| msg.sender_name.as_str())
-                                            .or(conv.map(|c| c.name.as_str()))
-                                            .unwrap_or("Chat"),
-                                        0,
-                                    ),
-                                    col().gap(2.0).children([
-                                        text(
-                                            conv.map(|c| c.name.clone())
-                                                .unwrap_or_else(|| "Chat".into()),
-                                        )
-                                        .size(TextSize::Sm)
-                                        .weight(Weight::Semibold),
-                                        text(format!(
-                                            "Rust Sync Sequence: #{}",
-                                            conv.map(|c| c.last_sync_seq).unwrap_or(0)
-                                        ))
-                                        .size(TextSize::Xs)
-                                        .mono()
-                                        .themed(|t, s| s.color(t.text_subtle)),
-                                    ]),
-                                    spacer_w(8.0),
-                                    status("Live", Status::Success).live(true).into(),
-                                ]),
-                            // Right: search / call / video / more
-                            row()
-                                .gap(SP1)
-                                .shrink0()
-                                .children([
-                                    icon_button(
-                                        icon_named("search", 16.0),
-                                        Msg::ToggleInChatSearch,
-                                        "Search in this chat",
-                                    ),
-                                    icon_button(
-                                        icon_named("phone", 16.0),
-                                        Msg::ComposerSend,
-                                        "Audio call",
-                                    ),
-                                    icon_button(
-                                        icon_named("video", 16.0),
-                                        Msg::ComposerSend,
-                                        "Video call",
-                                    ),
-                                    icon_button(
-                                        icon_named("ellipsis", 16.0),
-                                        Msg::ToggleInChatSearch,
-                                        "Conversation details",
-                                    ),
-                                ]),
-                        ]),
-                    // Messages feed — stick_to_bottom keeps new sends pinned
-                    col()
-                        .grow()
-                        .scroll_y()
-                        .stick_to_bottom()
-                        .id("message-feed")
-                        .p(SP4)
-                        .gap(SP4)
-                        .children(
-                            msgs.iter()
-                                .map(|msg| message_bubble(m, msg))
-                                .collect::<Vec<_>>(),
-                        ),
-                    composer(m),
-                ]),
-        )
+                .scroll_y()
+                .stick_to_bottom()
+                .id("message-feed")
+                .p(SP4)
+                .gap(SP4)
+                .children(
+                    msgs.iter()
+                        .map(|msg| message_bubble(m, msg))
+                        .collect::<Vec<_>>(),
+                ),
+            composer(m),
+        ])
 }
 
 fn empty_state() -> Element<Msg> {
@@ -1661,6 +1656,7 @@ fn composer(m: &Model) -> Element<Msg> {
         .into();
 
     col()
+        .w_full()
         .shrink0()
         .surface(Surface::Glass)
         .children([
