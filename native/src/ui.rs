@@ -91,6 +91,28 @@ pub enum Msg {
     SendSampleImage,
     SendSampleFile,
     ToggleInChatSearch,
+    // Calls (mock: no media, just the floating call card)
+    StartCall(CallKind),
+    ToggleCallMute,
+    EndCall,
+    /// Fired every second while a call is up: advances its timer.
+    CallTick,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallKind {
+    Audio,
+    Video,
+}
+
+/// An ongoing (mock) call, shown as the floating glass call card.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Call {
+    pub kind: CallKind,
+    pub peer: String,
+    /// Seconds on the call, advanced by `Msg::CallTick`.
+    pub elapsed_secs: u32,
+    pub muted: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,6 +160,8 @@ pub struct Model {
     pub initial_max_seq: i64,
     /// Voice-memo recording start (virtual ms); None when idle.
     pub recording_started: Option<i64>,
+    /// The ongoing call, if any.
+    pub call: Option<Call>,
 }
 
 /// Benchmark card values (PerformanceBenchmarkView.tsx state).
@@ -188,6 +212,7 @@ impl Model {
             },
             initial_max_seq: max_seq,
             recording_started: None,
+            call: None,
             context_menu_conv: None,
             profile_modal_open: false,
             profile_name: String::new(),
@@ -483,6 +508,32 @@ impl App for Model {
                     }
                 }
             }
+            Msg::StartCall(kind) => {
+                if self.call.is_none() {
+                    let peer = self
+                        .active_conv_id
+                        .as_ref()
+                        .and_then(|id| self.conversations.iter().find(|c| &c.id == id))
+                        .map_or_else(|| "Chat".to_string(), |c| c.name.clone());
+                    self.call = Some(Call {
+                        kind,
+                        peer,
+                        elapsed_secs: 0,
+                        muted: false,
+                    });
+                }
+            }
+            Msg::ToggleCallMute => {
+                if let Some(call) = &mut self.call {
+                    call.muted = !call.muted;
+                }
+            }
+            Msg::EndCall => self.call = None,
+            Msg::CallTick => {
+                if let Some(call) = &mut self.call {
+                    call.elapsed_secs += 1;
+                }
+            }
             Msg::SendSampleImage => {
                 let Some(conv_id) = self.active_conv_id.clone() else {
                     return;
@@ -623,6 +674,13 @@ impl App for Model {
             std::time::Duration::from_secs(3),
             || Msg::Heartbeat,
         )];
+        if self.call.is_some() {
+            subs.push(Sub::every(
+                "call",
+                std::time::Duration::from_secs(1),
+                || Msg::CallTick,
+            ));
+        }
         if self.recording_started.is_some() {
             subs.push(Sub::every(
                 "recording",
@@ -1170,10 +1228,15 @@ fn chat_row(m: &Model, conv: &Conversation) -> Element<Msg> {
         .state_layer(|t| t.text);
 
     if m.context_menu_conv.as_deref() == Some(&conv.id) {
-        row_el = row_el.child(
+        row_el = row_el.child(crate::fx::frosted(
             context_menu(vec![
                 (
-                    if conv.is_pinned { "Unpin Chat" } else { "Pin Chat" }.to_string(),
+                    if conv.is_pinned {
+                        "Unpin Chat"
+                    } else {
+                        "Pin Chat"
+                    }
+                    .to_string(),
                     Msg::TogglePin(conv.id.clone()),
                 ),
                 (
@@ -1186,7 +1249,8 @@ fn chat_row(m: &Model, conv: &Conversation) -> Element<Msg> {
                 ),
             ])
             .on_close(Msg::CloseContextMenu),
-        );
+            crate::fx::Glass::POPOVER,
+        ));
     }
 
     row_el
@@ -1307,15 +1371,17 @@ fn chat_area(m: &Model) -> Element<Msg> {
 
     // Aurora wash: absolute overlay painted first (behind in-flow siblings).
     // No stack() — grid cells hug content, which collapsed the header width.
-    col()
+    let area = col()
+        .id("chat-area")
         .grow()
         .overflow_hidden()
         .child(crate::fx::aurora_wash(m))
         .children([
             // Header: translucent over the wash, live pulse, right tools
             row()
+                .id("chat-header")
                 .w_full()
-                .h(56.0)
+                .h(CHAT_HEADER_H)
                 .px(SP4)
                 .items_center()
                 .justify_between()
@@ -1367,12 +1433,12 @@ fn chat_area(m: &Model) -> Element<Msg> {
                             ),
                             icon_button(
                                 icon_named("phone", 16.0),
-                                Msg::ComposerSend,
+                                Msg::StartCall(CallKind::Audio),
                                 "Audio call",
                             ),
                             icon_button(
                                 icon_named("video", 16.0),
-                                Msg::ComposerSend,
+                                Msg::StartCall(CallKind::Video),
                                 "Video call",
                             ),
                             icon_button(
@@ -1396,7 +1462,68 @@ fn chat_area(m: &Model) -> Element<Msg> {
                         .collect::<Vec<_>>(),
                 ),
             composer(m),
-        ])
+        ]);
+    // The call card floats last: an optional trailing sibling never shifts
+    // the identity of the feed or the composer as it comes and goes.
+    match call_card(m) {
+        Some(card) => area.child(card),
+        None => area,
+    }
+}
+
+const CHAT_HEADER_H: f32 = 56.0;
+
+/// The floating call card: frosted glass over the top of the feed, under the
+/// header's right-hand tools. Only its own rect takes input.
+fn call_card(m: &Model) -> Option<Element<Msg>> {
+    let call = m.call.as_ref()?;
+    let (icon, kind) = match call.kind {
+        CallKind::Audio => ("phone", "Voice call"),
+        CallKind::Video => ("video", "Video call"),
+    };
+    let elapsed = format!(
+        "{:02}:{:02}",
+        call.elapsed_secs / 60,
+        call.elapsed_secs % 60
+    );
+    let card = col()
+        .id("call-card")
+        .absolute()
+        .top(CHAT_HEADER_H + SP3)
+        .right(SP4)
+        .w(240.0)
+        .p(SP4)
+        .gap(SP3)
+        .rounded(R_LG)
+        .shadow(ShadowToken::Lg)
+        .themed(|t, s| s.border(1.0, t.border_subtle))
+        .label(format!("{kind} with {}", call.peer))
+        .children([
+            row().gap(SP2).items_center().children([
+                icon_named(icon, 14.0).themed(|t, s| s.color(t.accent_text)),
+                text(kind)
+                    .size(TextSize::Xs)
+                    .themed(|t, s| s.color(t.text_muted)),
+            ]),
+            col().gap(2.0).children([
+                text(call.peer.clone())
+                    .size(TextSize::Sm)
+                    .weight(Weight::Semibold)
+                    .truncate(),
+                text(elapsed).size(TextSize::Lg).mono().tabular(),
+            ]),
+            row().gap(SP2).children((
+                button(if call.muted { "Unmute" } else { "Mute" })
+                    .variant(ButtonVariant::Secondary)
+                    .size(ControlSize::Sm)
+                    .on_click(Msg::ToggleCallMute),
+                button("Hang up")
+                    .variant(ButtonVariant::Danger)
+                    .size(ControlSize::Sm)
+                    .on_click(Msg::EndCall),
+            )),
+        ]);
+    Some(crate::fx::frosted(card, crate::fx::Glass::CARD))
 }
 
 fn empty_state() -> Element<Msg> {
@@ -1789,12 +1916,19 @@ const COMMON_EMOJIS: [&str; 15] = [
 ];
 
 fn emoji_popover() -> Element<Msg> {
-    col()
+    let popover = col()
         .p(SP2)
         .gap(SP1)
         .w(200.0)
         .surface(Surface::Popover)
-        .overlay(Overlay::menu())
+        // App-driven: present only while `emoji_picker_open`, so it opens by
+        // being in the tree. `Overlay::menu()` toggles on its own anchor click,
+        // and the click that put it in the tree left it shut — it never showed.
+        // Outside clicks and Esc still close it through `on_close`.
+        .overlay(Overlay {
+            mode: OverlayMode::Open,
+            ..Overlay::menu()
+        })
         .on_close(Msg::ToggleEmojiPicker)
         .child(
             row()
@@ -1806,7 +1940,8 @@ fn emoji_popover() -> Element<Msg> {
                         .map(|e| emoji_cell(e.to_string()))
                         .collect::<Vec<_>>(),
                 ),
-        )
+        );
+    crate::fx::frosted(popover, crate::fx::Glass::POPOVER)
 }
 
 fn emoji_cell(emoji: String) -> Element<Msg> {

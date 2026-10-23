@@ -135,3 +135,26 @@ fn accessibility_exposes_menu_and_dialog() {
     // Profile dialog is exposed with its title
     assert!(!h.get_all(&by::label("Profile & Settings")).is_empty());
 }
+
+/// The picker opens from its real button, a click on an emoji inserts it and
+/// closes the picker, and Esc closes it too. Driven by clicks and keys: an
+/// app-driven popover on a click-toggled overlay opened in state but never on
+/// screen, which a test sending `Msg`s could not see.
+#[test]
+fn emoji_picker_opens_inserts_and_closes_from_real_input() {
+    let mut h = Harness::new(app(), Theme::from_accent(150.0, Mode::Dark), (1280, 800));
+    let cell = by::role(Semantics::Button).name("Emoji \u{1F44D}");
+    assert!(h.query(&cell).is_none());
+
+    h.click(&by::label("Emoji picker"));
+    assert!(h.query(&cell).is_some(), "the picker is on screen after its button");
+    h.click(&cell);
+    assert!(h.query(&cell).is_none(), "picking closes the picker");
+    assert!(h.app().composer.ends_with('\u{1F44D}'));
+
+    h.click(&by::label("Emoji picker"));
+    assert!(h.query(&cell).is_some());
+    h.key(KeyInput::plain(Key::Escape));
+    assert!(h.query(&cell).is_none(), "Esc closes the picker");
+    assert!(!h.app().emoji_picker_open);
+}

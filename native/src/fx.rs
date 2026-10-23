@@ -101,18 +101,66 @@ pub fn grain_overlay(seed: u64, width: u32, height: u32) -> Element<Msg> {
         .left(0.0)
 }
 
-// ---------- 3. Frosted-glass panels (Surface::Glass / glass_panel) ----------
+// ---------- 3. Frosted glass for floating layers ----------
 
-/// The composer as a floating frosted pane: content behind shows through with
-/// a vibrancy tint and specular rim. In headless renders the two-pass path
-/// realizes the real backdrop blur; live windows get tint + rim.
-pub fn glass_composer(inner: Element<Msg>) -> Element<Msg> {
-    col()
-        .surface(Surface::Glass)
-        .overflow_hidden()
-        .p(SP2)
-        .gap(SP1)
-        .child(inner)
+/// How a floating pane is frosted. Glass is only for what floats over the
+/// work area — menus, popovers, the call card — never for surfaces in the
+/// layout (see DESIGN.md "Glass").
+#[derive(Debug, Clone, Copy)]
+pub struct Glass {
+    /// Tint opacity over the blurred backdrop.
+    fill: f32,
+    /// Backdrop blur radius, logical px.
+    blur: f32,
+    /// Diagonal light sheen across the body.
+    sheen: bool,
+}
+
+impl Glass {
+    /// Menus and popovers carry text over anything: legibility first.
+    pub const POPOVER: Self = Self {
+        fill: 0.78,
+        blur: 18.0,
+        sheen: false,
+    };
+    /// Floating cards: glassier, so the feed reads through, with a sheen.
+    pub const CARD: Self = Self {
+        fill: 0.58,
+        blur: 14.0,
+        sheen: true,
+    };
+}
+
+/// Re-saturates the backdrop the blur washes out.
+const GLASS_VIBRANCY: f32 = 1.5;
+
+/// The stock rim (0.6 / 0.18) is loud on panes this small.
+fn quiet_rim() -> SpecularEdge {
+    SpecularEdge {
+        intensity: 0.22,
+        shade: 0.08,
+        ..SpecularEdge::glass()
+    }
+}
+
+/// Frosts a floating element: its fill becomes a vibrancy tint of
+/// `surface_raised` over a real blur of what is behind it, with a quiet rim
+/// and backdrop-adaptive tint. Everything else its surface role gave it —
+/// radius, border, shadow — stays, so a kit menu keeps its shape.
+pub fn frosted<M: 'static>(el: Element<M>, glass: Glass) -> Element<M> {
+    el.overflow_hidden().themed(move |t, s| {
+        let s = s
+            .bg(Material::new(glass.fill, glass.blur, GLASS_VIBRANCY).tint(t.surface_raised))
+            .backdrop_blur(glass.blur)
+            .backdrop_saturate(GLASS_VIBRANCY)
+            .specular_edge(quiet_rim())
+            .adaptive_tint(AdaptiveTint::glass());
+        if glass.sheen {
+            s.sheen(Sheen::glass())
+        } else {
+            s
+        }
+    })
 }
 
 /// A glass command bar for the title strip: translucent, lensed edge.

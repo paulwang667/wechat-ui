@@ -38,8 +38,18 @@ Signature light effects (`fx.rs`):
 - **Aurora mesh**: 4-point OKLab mesh (accent α0.55 → success α0.35 → bg),
   Bayer-dithered, behind chat/empty states.
 - **Film grain**: seed-fixed monochrome veil at α0.05 over gradients.
-- **Glass**: exactly one focal glass surface per screen (composer or status
-  pill). `Material::popover()` recipe (fill α0.82, blur 18, saturation 1.5).
+- **Glass**: only for what floats over the work area, never for surfaces in
+  the layout (the composer tried it and read as a grey band). One helper,
+  `fx::frosted(el, Glass::…)`: a vibrancy tint of `surface_raised` over a
+  real backdrop blur (saturation 1.5), quiet specular rim, adaptive tint; the
+  element keeps its surface role's radius, border and shadow.
+  - `Glass::POPOVER` (fill α0.78, blur 18): context menu, emoji picker —
+    text over anything, legibility first.
+  - `Glass::CARD` (fill α0.58, blur 14, sheen): the floating call card, so
+    the feed reads through.
+  - Kit modal: the fork's own glass (α0.50, blur 20), left as is.
+  - Glass stays still: no translate/scale animation on a pane (the blur
+    samples the untransformed rect), no glass inside glass.
 
 ## Typography
 
