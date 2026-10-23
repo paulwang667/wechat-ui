@@ -899,7 +899,7 @@ dependencies = [
 [[package]]
 name = "fenestra"
 version = "0.41.0"
-source = "git+https://github.com/paulwang667/fenestra?branch=main#999575cebbd19667531460e4a6028cd58b1cd579"
+source = "git+https://github.com/paulwang667/fenestra?branch=main#3267e216aac64345bec72698cb4e3ef724b96e76"
 dependencies = [
  "fenestra-core",
  "fenestra-kit",
@@ -909,12 +909,12 @@ dependencies = [
 [[package]]
 name = "fenestra-anim"
 version = "0.1.0"
-source = "git+https://github.com/paulwang667/fenestra?branch=main#999575cebbd19667531460e4a6028cd58b1cd579"
+source = "git+https://github.com/paulwang667/fenestra?branch=main#3267e216aac64345bec72698cb4e3ef724b96e76"
 
 [[package]]
 name = "fenestra-core"
 version = "0.41.0"
-source = "git+https://github.com/paulwang667/fenestra?branch=main#999575cebbd19667531460e4a6028cd58b1cd579"
+source = "git+https://github.com/paulwang667/fenestra?branch=main#3267e216aac64345bec72698cb4e3ef724b96e76"
 dependencies = [
  "color",
  "fenestra-anim",
@@ -931,7 +931,7 @@ dependencies = [
 [[package]]
 name = "fenestra-kit"
 version = "0.41.0"
-source = "git+https://github.com/paulwang667/fenestra?branch=main#999575cebbd19667531460e4a6028cd58b1cd579"
+source = "git+https://github.com/paulwang667/fenestra?branch=main#3267e216aac64345bec72698cb4e3ef724b96e76"
 dependencies = [
  "fenestra-core",
  "kurbo",
@@ -940,7 +940,7 @@ dependencies = [
 [[package]]
 name = "fenestra-shell"
 version = "0.41.0"
-source = "git+https://github.com/paulwang667/fenestra?branch=main#999575cebbd19667531460e4a6028cd58b1cd579"
+source = "git+https://github.com/paulwang667/fenestra?branch=main#3267e216aac64345bec72698cb4e3ef724b96e76"
 dependencies = [
  "accesskit",
  "accesskit_winit",

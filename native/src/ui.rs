@@ -726,7 +726,12 @@ impl App for Model {
 fn title_bar(m: &Model) -> Element<Msg> {
     let net = m.sync.network();
 
+    // The window is borderless (main.rs): this bar is its title bar. Pressing
+    // anywhere on it that is not a control drags the window; the lights are
+    // the window's own close / minimize / zoom.
     row()
+        .id("title-bar")
+        .drag_region()
         .h(36.0)
         .px(SP3)
         .items_center()
@@ -739,9 +744,9 @@ fn title_bar(m: &Model) -> Element<Msg> {
                 .gap(SP2)
                 .items_center()
                 .children([
-                    traffic_light(0xFF5F56, 0xE0443E),
-                    traffic_light(0xFFBD2E, 0xDEA123),
-                    traffic_light(0x27C93F, 0x1AAB29),
+                    traffic_light(TrafficLight::CLOSE),
+                    traffic_light(TrafficLight::MINIMIZE),
+                    traffic_light(TrafficLight::ZOOM),
                     spacer_w(12.0),
                     text("微信 WeChat")
                         .size(TextSize::Xs)
@@ -781,23 +786,75 @@ fn title_bar(m: &Model) -> Element<Msg> {
         ])
 }
 
-fn traffic_light(fill: u32, border: u32) -> Element<Msg> {
+/// A macOS window control: fill, rim and glyph colours are the platform's
+/// own, not theme tokens — the lights read the same in either theme.
+struct TrafficLight {
+    fill: u32,
+    rim: u32,
+    glyph: u32,
+    control: WindowControl,
+    label: &'static str,
+}
+
+impl TrafficLight {
+    const CLOSE: Self = Self {
+        fill: 0xFF5F56,
+        rim: 0xE0443E,
+        glyph: 0x4C0000,
+        control: WindowControl::Close,
+        label: "Close window",
+    };
+    const MINIMIZE: Self = Self {
+        fill: 0xFFBD2E,
+        rim: 0xDEA123,
+        glyph: 0x5A3B00,
+        control: WindowControl::Minimize,
+        label: "Minimize window",
+    };
+    const ZOOM: Self = Self {
+        fill: 0x27C93F,
+        rim: 0x1AAB29,
+        glyph: 0x004D11,
+        control: WindowControl::Maximize,
+        label: "Zoom window",
+    };
+}
+
+fn rgb(c: u32) -> Color {
+    Color::from_rgb8((c >> 16) as u8, (c >> 8) as u8, c as u8)
+}
+
+/// One light: the runner performs its OS action on press (`window_control`).
+/// The glyph (×, −, □) shows while the pointer is on it.
+fn traffic_light(light: TrafficLight) -> Element<Msg> {
+    let (glyph, size): (Element<Msg>, f32) = match light.control {
+        WindowControl::Close => (icons::lucide::x(), 8.0),
+        WindowControl::Minimize => (icons::lucide::minus(), 8.0),
+        WindowControl::Maximize => (crate::icons::by_name("square").expect("vendored icon"), 6.0),
+    };
+    let glyph_color = rgb(light.glyph);
     div()
         .w(12.0)
         .h(12.0)
         .rounded_full()
-        .themed(move |t, s| {
-            let _ = t;
-            s.bg(Color::from_rgb8(
-                (fill >> 16) as u8,
-                (fill >> 8) as u8,
-                fill as u8,
-            ))
-            .border(
-                1.0,
-                Color::from_rgb8((border >> 16) as u8, (border >> 8) as u8, border as u8),
-            )
-        })
+        .bg(rgb(light.fill))
+        .border(1.0, rgb(light.rim))
+        .opacity(0.9)
+        .hover(|s| s.opacity(1.0))
+        .cursor(Cursor::Pointer)
+        .semantics(Semantics::Button)
+        .label(light.label)
+        .window_control(light.control)
+        .child(
+            div()
+                .w_full()
+                .h_full()
+                .items_center()
+                .justify_center()
+                .opacity(0.0)
+                .hover(|s| s.opacity(1.0))
+                .child(glyph.w(size).h(size).themed(move |_, s| s.color(glyph_color))),
+        )
 }
 
 fn pill_text(label: &str) -> Element<Msg> {
